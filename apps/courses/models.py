@@ -65,7 +65,7 @@ class Lesson(models.Model):
     section   = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='lessons')
     title     = models.CharField(max_length=255)
     content   = models.TextField(blank=True)
-    video_url = models.URLField(blank=True)
+    video_file = models.FileField(upload_to='lessons/videos/', blank=True, null=True)
 
     lesson_type = models.CharField(max_length=10, choices=LESSON_TYPE)
     duration    = models.PositiveIntegerField(help_text="Durée en secondes", default=0)

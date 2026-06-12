@@ -9,6 +9,8 @@ class Certificate(models.Model):
     user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='certificates')
     course     = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='certificates')
 
+
+    file           = models.FileField(upload_to='certificates/pdfs/', blank=True, null=True)
     issued_at  = models.DateTimeField(auto_now_add=True)
     certificate_id = models.CharField(max_length=100, unique=True)
 

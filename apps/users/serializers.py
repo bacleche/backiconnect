@@ -7,6 +7,8 @@ from apps.certificates.models import Certificate
 from django.utils import timezone
 from datetime import timedelta
 
+from django.core.mail import send_mail
+from django.conf import settings
 
 # ─── Token personnalisé ───────────────────────────────────
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -140,7 +142,6 @@ class AdminUserSerializer(serializers.ModelSerializer):
         
         
 
-
 class OTPCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = OTP
@@ -149,17 +150,18 @@ class OTPCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = validated_data['user']
-
         code = OTP.generate_code()
         expires_at = timezone.now() + timedelta(minutes=5)
 
-        otp = OTP.objects.create(
-            user=user,
-            code=code,
-            expires_at=expires_at
-        )
+        otp = OTP.objects.create(user=user, code=code, expires_at=expires_at)
 
-        print(f"OTP pour {user.email}: {code}")
+        send_mail(
+            subject='Votre code de vérification iConnect',
+            message=f'Votre code OTP est : {code}\nIl expire dans 5 minutes.',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
 
         return otp
     

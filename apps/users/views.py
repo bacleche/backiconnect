@@ -16,7 +16,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from iconnect_Backend.permissions import IsAdmin, IsAdminOrTeacher
 from apps.certificates.models import Certificate
 from apps.courses.models import Course, Enrollment, Lesson, Lesson, Payment, Payment, Review, Section, Section
-from .models import Conversation
+from .models import *
 from .serializers import (
     CustomTokenObtainPairSerializer,
     CertificateSerializer,
@@ -45,9 +45,27 @@ User = get_user_model()
 
 # ─── Authentification ─────────────────────────────────────
 
-class LoginView(TokenObtainPairView):
-    """Connexion – retourne access + refresh token + infos user."""
-    serializer_class = CustomTokenObtainPairSerializer
+class LoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        user = User.objects.filter(email=email).first()
+        OTP.objects.filter(user=user, is_used=False, expires_at__lt=timezone.now()).delete()
+
+        if user and user.check_password(password):
+            # Dans LoginView.post, avant de créer un nouvel OTP :
+            otp_serializer = OTPCreateSerializer(data={'user': user.id})
+            if otp_serializer.is_valid():
+                otp_serializer.save()
+                return Response({
+                    "message": "OTP requis",
+                    "requires_otp": True,
+                    "email": user.email
+                }, status=status.HTTP_200_OK)
+        
+        return Response({"error": "Identifiants invalides"}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -57,9 +75,12 @@ class RegisterView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        # Générer des tokens dès l'inscription
+        if not serializer.is_valid():
+            print("--- ERREURS DE VALIDATION ---")
+            print(serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = serializer.save()  # ← une seule fois
         refresh = RefreshToken.for_user(user)
         return Response({
             'message': 'Inscription réussie.',
@@ -74,6 +95,9 @@ class RegisterView(generics.CreateAPIView):
                 'refresh': str(refresh),
             }
         }, status=status.HTTP_201_CREATED)
+
+
+
 
 
 class LogoutView(APIView):
@@ -211,6 +235,8 @@ def admin_stats(request):
 
 class OTPViewSet(viewsets.ViewSet):
 
+    permission_classes = [permissions.AllowAny]  # ← ajoute cette ligne
+
     @action(detail=False, methods=['post'])
     def send_otp(self, request):
         serializer = OTPCreateSerializer(data=request.data)
@@ -222,25 +248,49 @@ class OTPViewSet(viewsets.ViewSet):
                 "otp_id": otp.id  # à retirer en prod
             }, status=status.HTTP_201_CREATED)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "OTP envoyé à votre adresse email."}, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'])
     def verify_otp(self, request):
         serializer = OTPVerifySerializer(data=request.data)
 
         if serializer.is_valid():
+            user = serializer.validated_data['user']
             otp = serializer.validated_data['otp']
             otp.is_used = True
             otp.save()
 
+            # GÉNÉRATION DES TOKENS ICI UNIQUEMENT
+            refresh = RefreshToken.for_user(user)
             return Response({
-                "message": "OTP vérifié avec succès"
+                "message": "Authentification réussie",
+                "user": UserSerializer(user).data,
+                "tokens": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                }
             })
-
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    
-    
+
+
+    # views.py
+class ResendOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "Utilisateur introuvable."}, status=404)
+        
+        OTP.objects.filter(user=user, is_used=False).delete()
+        otp_serializer = OTPCreateSerializer(data={'user': user.id})
+        if otp_serializer.is_valid():
+            otp_serializer.save()
+        return Response({"message": "OTP renvoyé."})
+
+
 # ─── Conversation ViewSet ───────────────────
 class ConversationViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
